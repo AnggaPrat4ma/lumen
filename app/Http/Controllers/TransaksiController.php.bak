@@ -1,0 +1,385 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use App\Models\Transaksi;
+use App\Models\User;
+use App\Models\JenisTiket;
+use App\Models\Tiket;
+use Exception;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
+
+class TransaksiController extends Controller
+{
+    /**
+     * Get all transactions (with filters)
+     */
+    public function index(Request $request)
+    {
+        try {
+            $query = Transaksi::with(['user', 'jenisTiket.event', 'tikets']);
+
+            // ✅ Filter by user
+            if ($request->has('id_user')) {
+                $query->where('id_user', $request->id_user);
+            }
+
+            // ✅ Filter by status
+            if ($request->has('status')) {
+                $query->where('status', $request->status);
+            }
+
+            // ✅ Filter by date range
+            if ($request->has('start_date') && $request->has('end_date')) {
+                $query->whereBetween('waktu_transaksi', [
+                    $request->start_date,
+                    $request->end_date
+                ]);
+            }
+
+            // ✅ Sorting
+            $sortBy = $request->get('sort_by', 'waktu_transaksi');
+            $sortOrder = $request->get('sort_order', 'desc');
+            $query->orderBy($sortBy, $sortOrder);
+
+            // ✅ Pagination
+            $perPage = $request->get('per_page', 10);
+            $transaksi = $query->paginate($perPage);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Data transaksi berhasil diambil',
+                'data' => $transaksi,
+            ]);
+
+        } catch (Exception $e) {
+            Log::error('Get Transactions Error: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal mengambil data transaksi',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Get transaction detail by ID
+     */
+    public function show($id)
+    {
+        try {
+            $transaksi = Transaksi::with([
+                'user',
+                'jenisTiket.event',
+                'tikets'
+            ])->findOrFail($id);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Detail transaksi berhasil diambil',
+                'data' => $transaksi,
+            ]);
+
+        } catch (Exception $e) {
+            Log::error('Get Transaction Detail Error: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Transaksi tidak ditemukan',
+                'error' => $e->getMessage(),
+            ], 404);
+        }
+    }
+
+    /**
+     * Get transaction by order_id
+     */
+    public function getByOrderId($orderId)
+    {
+        try {
+            $transaksi = Transaksi::with([
+                'user',
+                'jenisTiket.event',
+                'tikets'
+            ])->where('order_id', $orderId)->firstOrFail();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Detail transaksi berhasil diambil',
+                'data' => $transaksi,
+            ]);
+
+        } catch (Exception $e) {
+            Log::error('Get Transaction by Order ID Error: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Transaksi tidak ditemukan',
+                'error' => $e->getMessage(),
+            ], 404);
+        }
+    }
+
+    /**
+     * Get user's transaction history
+     */
+    public function getUserTransactions($userId, Request $request)
+    {
+        try {
+            $query = Transaksi::with(['jenisTiket.event', 'tikets'])
+                ->where('id_user', $userId);
+
+            // ✅ Filter by status
+            if ($request->has('status')) {
+                $query->where('status', $request->status);
+            }
+
+            // ✅ Sorting
+            $query->orderBy('waktu_transaksi', 'desc');
+
+            // ✅ Pagination
+            $perPage = $request->get('per_page', 10);
+            $transaksi = $query->paginate($perPage);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Riwayat transaksi berhasil diambil',
+                'data' => $transaksi,
+            ]);
+
+        } catch (Exception $e) {
+            Log::error('Get User Transactions Error: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal mengambil riwayat transaksi',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Cancel transaction (only pending transactions)
+     */
+    public function cancel($id)
+    {
+        DB::beginTransaction();
+
+        try {
+            $transaksi = Transaksi::findOrFail($id);
+
+            // ✅ Cek apakah transaksi masih pending
+            if ($transaksi->status !== 'pending') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Hanya transaksi dengan status pending yang dapat dibatalkan',
+                ], 400);
+            }
+
+            // ✅ Update status transaksi
+            $transaksi->update([
+                'status' => 'expired',
+            ]);
+
+            // ✅ Cancel payment di Midtrans (opsional)
+            try {
+                \Midtrans\Config::$serverKey = env('MIDTRANS_SERVER_KEY');
+                \Midtrans\Config::$isProduction = env('MIDTRANS_IS_PRODUCTION', false);
+                
+                \Midtrans\Transaction::cancel($transaksi->order_id);
+            } catch (Exception $e) {
+                Log::warning('Midtrans Cancel Error: ' . $e->getMessage());
+                // Continue even if Midtrans cancel fails
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Transaksi berhasil dibatalkan',
+                'data' => $transaksi,
+            ]);
+
+        } catch (Exception $e) {
+            DB::rollBack();
+            Log::error('Cancel Transaction Error: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal membatalkan transaksi',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Get transaction statistics
+     */
+    public function getStatistics(Request $request)
+    {
+        try {
+            $query = Transaksi::query();
+
+            // ✅ Filter by date range
+            if ($request->has('start_date') && $request->has('end_date')) {
+                $query->whereBetween('waktu_transaksi', [
+                    $request->start_date,
+                    $request->end_date
+                ]);
+            }
+
+            // ✅ Filter by event
+            if ($request->has('id_event')) {
+                $query->whereHas('jenisTiket', function ($q) use ($request) {
+                    $q->where('id_event', $request->id_event);
+                });
+            }
+
+            $statistics = [
+                'total_transactions' => $query->count(),
+                'total_revenue' => $query->where('status', 'paid')->sum('total_harga'),
+                'pending_transactions' => (clone $query)->where('status', 'pending')->count(),
+                'paid_transactions' => (clone $query)->where('status', 'paid')->count(),
+                'failed_transactions' => (clone $query)->where('status', 'failed')->count(),
+                'expired_transactions' => (clone $query)->where('status', 'expired')->count(),
+                'total_tickets_sold' => (clone $query)->where('status', 'paid')->sum('jumlah_tiket'),
+            ];
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Statistik transaksi berhasil diambil',
+                'data' => $statistics,
+            ]);
+
+        } catch (Exception $e) {
+            Log::error('Get Statistics Error: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal mengambil statistik transaksi',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Delete transaction (admin only, untuk cleaning data)
+     */
+    public function destroy($id)
+    {
+        DB::beginTransaction();
+
+        try {
+            $transaksi = Transaksi::findOrFail($id);
+
+            // ✅ Cek apakah transaksi sudah paid
+            if ($transaksi->status === 'paid') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Tidak dapat menghapus transaksi yang sudah dibayar',
+                ], 400);
+            }
+
+            // ✅ Hapus tiket terkait jika ada
+            Tiket::where('id_transaksi', $id)->delete();
+
+            // ✅ Hapus transaksi
+            $transaksi->delete();
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Transaksi berhasil dihapus',
+            ]);
+
+        } catch (Exception $e) {
+            DB::rollBack();
+            Log::error('Delete Transaction Error: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal menghapus transaksi',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Retry payment for expired/failed transaction
+     */
+    public function retryPayment($id)
+    {
+        try {
+            $transaksi = Transaksi::with(['user', 'jenisTiket.event'])->findOrFail($id);
+
+            // ✅ Cek apakah transaksi bisa diretry
+            if (!in_array($transaksi->status, ['expired', 'failed'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Hanya transaksi expired atau failed yang dapat diulang',
+                ], 400);
+            }
+
+            // ✅ Cek ketersediaan kuota
+            $jenisTiket = $transaksi->jenisTiket;
+            if ($jenisTiket->kuota < $transaksi->jumlah_tiket) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Kuota tiket tidak mencukupi. Tersisa: ' . $jenisTiket->kuota,
+                ], 400);
+            }
+
+            // ✅ Create new Midtrans transaction
+            \Midtrans\Config::$serverKey = env('MIDTRANS_SERVER_KEY');
+            \Midtrans\Config::$isProduction = env('MIDTRANS_IS_PRODUCTION', false);
+            \Midtrans\Config::$isSanitized = true;
+            \Midtrans\Config::$is3ds = true;
+
+            $params = [
+                'transaction_details' => [
+                    'order_id' => $transaksi->order_id,
+                    'gross_amount' => (int) $transaksi->total_harga,
+                ],
+                'customer_details' => [
+                    'first_name' => $transaksi->user->nama,
+                    'email' => $transaksi->user->email,
+                    'phone' => $transaksi->user->phone ?? '',
+                ],
+                'item_details' => [[
+                    'id' => $jenisTiket->id_jenis_tiket,
+                    'price' => (int) $jenisTiket->harga,
+                    'quantity' => $transaksi->jumlah_tiket,
+                    'name' => $jenisTiket->nama_tiket . ' - ' . ($jenisTiket->event->nama_event ?? 'Event'),
+                ]],
+            ];
+
+            /** @var object $snapTransaction */
+            $snapTransaction = \Midtrans\Snap::createTransaction($params);
+
+            // ✅ Update status menjadi pending
+            $transaksi->update(['status' => 'pending']);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Link pembayaran berhasil dibuat',
+                'data' => [
+                    'snap_token' => $snapTransaction->token,
+                    'redirect_url' => $snapTransaction->redirect_url,
+                ],
+            ]);
+
+        } catch (Exception $e) {
+            Log::error('Retry Payment Error: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal membuat link pembayaran baru',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+}

@@ -1,0 +1,125 @@
+<?php
+
+namespace Database\Seeders;
+
+use Illuminate\Database\Seeder;
+use Spatie\Permission\Models\Role;
+use Spatie\Permission\Models\Permission;
+
+class PermissionSeeder extends Seeder
+{
+    public function run()
+    {
+        // Reset cached roles and permissions
+        app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+
+        // ==== 1. DAFTAR PERMISSIONS ====
+        $permissions = [
+            // Event Permissions
+            'event.view',
+            'event.create',
+            'event.update',
+            'event.delete',
+            'event.view-all', // Admin bisa lihat semua event
+
+            // Tiket Permissions
+            'tiket.view',
+            'tiket.create',
+            'tiket.update',
+            'tiket.delete',
+            'tiket.scan',
+            'tiket.verify',
+
+            // Transaksi Permissions
+            'transaksi.view',
+            'transaksi.view-all',
+            'transaksi.approve',
+            'transaksi.reject',
+
+            // User Permissions
+            'user.view',
+            'user.create',
+            'user.update',
+            'user.delete',
+            'user.manage-roles',
+
+            // Jenis Tiket Permissions
+            'jenis-tiket.view',
+            'jenis-tiket.create',
+            'jenis-tiket.update',
+            'jenis-tiket.delete',
+
+            // Pamflet Permissions
+            'pamflet.view',
+            'pamflet.create',
+            'pamflet.update',
+            'pamflet.delete',
+
+            // Pengecekan Permissions
+            'pengecekan.view',
+            'pengecekan.create',
+        ];
+
+        foreach ($permissions as $permName) {
+            Permission::firstOrCreate([
+                'name' => $permName,
+                'guard_name' => 'api',
+            ]);
+        }
+
+        // ==== 2. ROLE: ADMIN ====
+        $admin = Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'api']);
+        // assign all permissions
+        $admin->syncPermissions(Permission::pluck('name')->toArray());
+
+        // ==== 3. ROLE: EO (Event Organizer) ====
+        $eo = Role::firstOrCreate(['name' => 'EO', 'guard_name' => 'api']);
+        $eoPermissions = [
+            'event.view',
+            'event.create',
+            'event.update',
+            'event.delete',
+            'tiket.view',
+            'tiket.create',
+            'tiket.update',
+            'tiket.delete',
+            'jenis-tiket.view',
+            'jenis-tiket.create',
+            'jenis-tiket.update',
+            'jenis-tiket.delete',
+            'pamflet.view',
+            'pamflet.create',
+            'pamflet.update',
+            'pamflet.delete',
+            'transaksi.view',
+            'pengecekan.view',
+        ];
+        $eo->syncPermissions($eoPermissions);
+
+        // ==== 4. ROLE: PANITIA ====
+        $panitia = Role::firstOrCreate(['name' => 'Panitia', 'guard_name' => 'api']);
+        $panitiaPermissions = [
+            'tiket.scan',
+            'tiket.verify',
+            'tiket.view',
+            'pengecekan.view',
+            'pengecekan.create',
+            'event.view',
+        ];
+        $panitia->syncPermissions($panitiaPermissions);
+
+        // ==== 5. ROLE: USER ====
+        $user = Role::firstOrCreate(['name' => 'User', 'guard_name' => 'api']);
+        $userPermissions = [
+            'event.view',
+            'tiket.view',
+            'transaksi.view',
+        ];
+        $user->syncPermissions($userPermissions);
+
+        // ==== 6. OUTPUT INFO ====
+        echo "✅ Permissions and Roles seeded successfully!\n";
+        echo "   - Created or updated " . count($permissions) . " permissions\n";
+        echo "   - Roles: Admin, EO, Panitia, User\n";
+    }
+}

@@ -1,0 +1,257 @@
+<?php
+
+/** @var \Laravel\Lumen\Routing\Router $router */
+
+/*
+|--------------------------------------------------------------------------
+| Application Routes
+|--------------------------------------------------------------------------
+|
+| Here is where you can register all of the routes for an application.
+| It is a breeze. Simply tell Lumen the URIs it should respond to
+| and give it the Closure to call when that URI is requested.
+|
+*/
+
+$router->get('/', function () use ($router) {
+    return $router->app->version();
+});
+
+// Get transaction statistics
+$router->get('api/transaksi/statistics', 'TransaksiController@getStatistics');
+
+$router->group(['middleware' => ['auth', 'permission:edit articles']], function () use ($router) {
+    $router->put('/articles/{id}', 'ArticleController@update');
+});
+
+// $router->group(['prefix' => 'api'], function () use ($router) {
+//     $router->post('order', 'MidtransController@createTransaction');
+//     $router->post('midtrans/notification', 'MidtransController@notificationHandler');
+// });
+
+$router->group(['prefix' => 'api/auth'], function () use ($router) {
+    $router->post('/register', 'AuthController@register');
+    $router->post('/login', 'AuthController@login');
+});
+$router->group(['middleware' => 'firebase.auth'], function () use ($router) {
+    $router->get('/user/profile', function () {
+        return response()->json(['message' => 'You are authenticated!']);
+    });
+});
+
+$router->group(['prefix' => 'api'], function () use ($router) {
+    $router->get('/events', 'EventController@index');
+    $router->get('/events/{id}', 'EventController@show');
+    $router->post('/events', 'EventController@store');
+    $router->put('/events/{id}', 'EventController@update');
+    $router->delete('/events/{id}', 'EventController@destroy');
+});
+
+$router->group(['prefix' => 'api'], function () use ($router) {
+    // CRUD Jenis Tiket
+    $router->get('/jenistiket', 'JenisTiketController@index');
+    $router->get('/jenistiket/{id}', 'JenisTiketController@show');
+    $router->post('/jenistiket', 'JenisTiketController@store');
+    $router->put('/jenistiket/{id}', 'JenisTiketController@update');
+    $router->delete('/jenistiket/{id}', 'JenisTiketController@destroy');
+    $router->get('/events/{id}/jenistiket', 'EventController@getJenisTiketByEvent');
+
+    $router->get('/transaksi', 'TransaksiController@index');
+    $router->get('/transaksi/{id}', 'TransaksiController@show');
+    $router->post('/transaksi', 'TransaksiController@store');
+});
+
+$router->group(['prefix' => 'api'], function () use ($router) {
+
+    // ===== MIDTRANS ROUTES =====
+    $router->group(['prefix' => 'midtrans'], function () use ($router) {
+        $router->post('/create-transaction', 'MidtransController@createTransaction');
+        $router->post('/callback', 'MidtransCallbackController@handleNotification');
+        $router->get('/status/{orderId}', 'MidtransController@getTransactionStatus');
+        $router->get('/check-status/{orderId}', 'MidtransCallbackController@checkPaymentStatus');
+    });
+
+    // ===== TRANSAKSI ROUTES =====
+    $router->group(['prefix' => 'transaksi'], function () use ($router) {
+        // Get all transactions (with filters)
+        $router->get('/', 'TransaksiController@index');
+
+        // Get transaction by ID
+        $router->get('/{id:[0-9]+}', 'TransaksiController@show');
+
+        // Get transaction by order_id
+        $router->get('/order/{orderId}', 'TransaksiController@getByOrderId');
+
+        // Get user's transactions
+        $router->get('/user/{userId}', 'TransaksiController@getUserTransactions');
+
+        // Cancel transaction
+        $router->put('/{id}/cancel', 'TransaksiController@cancel');
+
+        // Retry payment
+        $router->post('/{id}/retry', 'TransaksiController@retryPayment');
+
+        // Delete transaction (admin only)
+        $router->delete('/{id}', 'TransaksiController@destroy');
+    });
+
+    // ===== TICKET ROUTES =====
+    $router->group(['prefix' => 'tiket'], function () use ($router) {
+        // Get all tickets (with filters)
+        $router->get('/', 'TicketController@index');
+
+        // Get ticket by ID
+        $router->get('/{id}', 'TicketController@show');
+
+        // Get ticket by QR code
+        $router->get('/qr/{qrCode}', 'TicketController@getByQrCode');
+
+        // Get user's tickets
+        $router->get('/user/{userId}', 'TicketController@getUserTickets');
+
+        // ✅ NEW - Get tickets by event ID
+        $router->get('/event/{eventId}/tickets', 'TicketController@getEventTickets');
+
+        // Get event statistics
+        $router->get('/event/{eventId}/statistics', 'TicketController@getEventStatistics');
+
+        // Validate ticket (before check-in)
+        $router->post('/validate', 'TicketController@validateTicket');
+
+        // Check-in ticket
+        $router->post('/check-in', 'TicketController@checkIn');
+
+        // Cancel ticket
+        $router->put('/{id}/cancel', 'TicketController@cancel');
+    });
+});
+
+$router->group(['prefix' => 'api', 'middleware' => 'auth'], function () use ($router) {
+    
+    // Auth
+    $router->post('/auth/logout', 'AuthController@logout');
+    $router->get('/auth/me', 'AuthController@me');
+
+    // ============================================
+    // EVENT ROUTES
+    // ============================================
+    $router->get('/events', 'EventController@index');
+    $router->get('/events/{id}', 'EventController@show');
+    $router->get('/events/{id}/jenis-tiket', 'EventController@getJenisTiketByEvent');
+    
+    // Protected - EO & Admin only
+    $router->group(['middleware' => 'permission:event.create'], function () use ($router) {
+        $router->post('/events', 'EventController@store');
+    });
+    
+    $router->group(['middleware' => 'permission:event.update'], function () use ($router) {
+        $router->put('/events/{id}', 'EventController@update');
+    });
+    
+    $router->group(['middleware' => 'permission:event.delete'], function () use ($router) {
+        $router->delete('/events/{id}', 'EventController@destroy');
+    });
+
+    // ============================================
+    // TIKET ROUTES
+    // ============================================
+    
+    $router->get('/tiket', 'TicketController@index');
+    $router->get('/tiket/{id}', 'TicketController@show');
+    $router->get('/tiket/my-tickets', 'TicketController@myTickets');
+    $router->get('/tiket/user/{userId}', 'TicketController@getUserTickets');
+    $router->get('/tiket/event/{eventId}', 'TicketController@getEventTickets');
+    $router->get('/tiket/event/{eventId}/statistics', 'TicketController@getEventStatistics');
+    
+    // Panitia & Admin - Scan & Verify
+    $router->group(['middleware' => 'permission:tiket.scan'], function () use ($router) {
+        $router->post('/tiket/scan', 'TicketController@scan');
+        $router->post('/tiket/check-in', 'TicketController@checkIn'); // Alias
+        $router->get('/tiket/scan-history', 'TicketController@scanHistory');
+    });
+    
+    $router->group(['middleware' => 'permission:tiket.verify'], function () use ($router) {
+        $router->get('/tiket/verify/{qrCode}', 'TicketController@verify');
+        $router->get('/tiket/qr/{qrCode}', 'TicketController@getByQrCode');
+        $router->post('/tiket/validate', 'TicketController@validateTicket');
+    });
+    
+    // Cancel ticket
+    $router->post('/tiket/{id}/cancel', 'TicketController@cancel');
+
+    // ============================================
+    // TRANSAKSI ROUTES
+    // ============================================
+    
+    // User - lihat transaksi sendiri
+    $router->get('/transaksi', 'TransaksiController@index');
+    $router->get('/transaksi/{id}', 'TransaksiController@show');
+    $router->post('/transaksi', 'TransaksiController@store');
+    
+    // Admin - approve/reject transaksi
+    $router->group(['middleware' => 'permission:transaksi.approve'], function () use ($router) {
+        $router->post('/transaksi/{id}/approve', 'TransaksiController@approve');
+        $router->post('/transaksi/{id}/reject', 'TransaksiController@reject');
+    });
+
+    // ============================================
+    // JENIS TIKET ROUTES
+    // ============================================
+    
+    $router->get('/jenis-tiket', 'JenisTiketController@index');
+    $router->get('/jenis-tiket/{id}', 'JenisTiketController@show');
+    $router->get('/jenis-tiket/{id}/available', 'JenisTiketController@checkAvailability');
+    $router->get('/jenis-tiket/event/{eventId}', 'JenisTiketController@getByEvent');
+    
+    // Protected - EO & Admin only
+    $router->group(['middleware' => 'permission:jenis-tiket.create'], function () use ($router) {
+        $router->post('/jenis-tiket', 'JenisTiketController@store');
+    });
+    
+    $router->group(['middleware' => 'permission:jenis-tiket.update'], function () use ($router) {
+        $router->put('/jenis-tiket/{id}', 'JenisTiketController@update');
+    });
+    
+    $router->group(['middleware' => 'permission:jenis-tiket.delete'], function () use ($router) {
+        $router->delete('/jenis-tiket/{id}', 'JenisTiketController@destroy');
+    });
+
+    // ============================================
+    // USER MANAGEMENT (Admin only)
+    // ============================================
+    
+    $router->group(['middleware' => 'role:Admin'], function () use ($router) {
+        $router->get('/users', 'UserController@index');
+        $router->get('/users/{id}', 'UserController@show');
+        $router->post('/users', 'UserController@store');
+        $router->put('/users/{id}', 'UserController@update');
+        $router->delete('/users/{id}', 'UserController@destroy');
+        
+        // Assign roles to user
+        $router->post('/users/{id}/assign-role', 'UserController@assignRole');
+        $router->post('/users/{id}/remove-role', 'UserController@removeRole');
+    });
+
+    // ============================================
+    // ROLE & PERMISSION MANAGEMENT (Admin only)
+    // ============================================
+    
+    $router->group(['middleware' => 'role:Admin'], function () use ($router) {
+        // Roles
+        $router->get('/roles', 'RoleController@index');
+        $router->post('/roles', 'RoleController@store');
+        $router->put('/roles/{id}', 'RoleController@update');
+        $router->delete('/roles/{id}', 'RoleController@destroy');
+        
+        // Permissions
+        $router->get('/permissions', 'PermissionController@index');
+        $router->post('/permissions', 'PermissionController@store');
+        
+        // Assign permissions to role
+        $router->post('/roles/{id}/assign-permission', 'RoleController@assignPermission');
+        $router->post('/roles/{id}/remove-permission', 'RoleController@removePermission');
+    });
+});
+$router->group(['prefix' => 'api'], function () use ($router) {
+    $router->get('/events/public', 'EventController@publicEvents');
+});
