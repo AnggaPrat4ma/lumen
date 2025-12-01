@@ -10,9 +10,9 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Laravel\Lumen\Auth\Authorizable;
 use Spatie\Permission\Traits\HasRoles;
+use PHPOpenSourceSaver\JWTAuth\Contracts\JWTSubject;
 
-
-class User extends Model implements AuthenticatableContract, AuthorizableContract
+class User extends Model implements AuthenticatableContract, AuthorizableContract, JWTSubject
 {
     use Authenticatable, Authorizable, HasFactory, HasRoles;
 
@@ -36,6 +36,8 @@ class User extends Model implements AuthenticatableContract, AuthorizableContrac
         'password',
         'phone',
         'firebase_uid',
+        'api_token', // ✅ Tambahkan
+        'token_expires_at', // ✅ Tambahkan
         'photo',
         'status'
     ];
@@ -45,30 +47,44 @@ class User extends Model implements AuthenticatableContract, AuthorizableContrac
      */
     protected $hidden = [
         'firebase_uid',
+        'api_token', // ✅ Tambahkan - jangan expose di JSON
     ];
 
     protected $casts = [
         'id_user' => 'integer',
         'status' => 'string',
+        'token_expires_at' => 'datetime', // ✅ Tambahkan
     ];
 
-    // ✅ TAMBAHKAN METHOD INI untuk Sanctum
+    // ✅ REQUIRED METHODS UNTUK JWT
     /**
-     * Get the name of the unique identifier for the user.
-     *
-     * @return string
-     */
-    public function getAuthIdentifierName()
-    {
-        return 'id_user';
-    }
-
-    /**
-     * Get the unique identifier for the user.
+     * Get the identifier that will be stored in the subject claim of the JWT.
      *
      * @return mixed
      */
-    public function getAuthIdentifier()
+    public function getJWTIdentifier()
+    {
+        return $this->getKey(); // Return primary key (id_user)
+    }
+
+    /**
+     * Return a key value array, containing any custom claims to be added to the JWT.
+     *
+     * @return array
+     */
+    public function getJWTCustomClaims()
+    {
+        return [
+            'id_user' => $this->id_user,
+            'nama' => $this->nama,
+            'email' => $this->email,
+        ];
+    }
+
+    /**
+     * Override getKey untuk gunakan id_user sebagai primary key
+     */
+    public function getKey()
     {
         return $this->id_user;
     }

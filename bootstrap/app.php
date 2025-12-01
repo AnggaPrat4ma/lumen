@@ -42,6 +42,7 @@ $app->configure('auth');
 $app->configure('database');
 $app->configure('cache');
 $app->configure('cors');
+$app->configure('jwt');
 $app->configure('firebase');
 $app->configure('permission');
 $app->configure('midtrans'); // Masih kamu gunakan, jadi tetap diaktifkan
@@ -61,6 +62,7 @@ $app->routeMiddleware([
     'role' => App\Http\Middleware\RoleMiddleware::class,
     'permission' => App\Http\Middleware\PermissionMiddleware::class,
     'cors' => App\Http\Middleware\CorsMiddleware::class,
+    'jwt.db' => App\Http\Middleware\JWTDatabaseCheck::class,
     // 'role_or_permission' => Spatie\Permission\Middlewares\RoleOrPermissionMiddleware::class,
 ]);
 
@@ -76,6 +78,7 @@ $app->register(App\Providers\AuthServiceProvider::class);
 $app->register(Kreait\Laravel\Firebase\ServiceProvider::class);
 $app->register(Flipbox\LumenGenerator\LumenGeneratorServiceProvider::class);
 $app->register(App\Providers\LumenPermissionServiceProvider::class);
+$app->register(PHPOpenSourceSaver\JWTAuth\Providers\LumenServiceProvider::class);
 // $app->register(Spatie\Permission\PermissionServiceProvider::class);
 // $app->alias('cache', Illuminate\Cache\CacheManager::class);
 

@@ -33,10 +33,9 @@ class Authenticate
      * @param  string|null  $guard
      * @return mixed
      */
-    public function handle($request, Closure $next, $guard = null)
+    public function handle($request, Closure $next)
     {
-        // ✅ Use guard, default to 'api'
-        if ($this->auth->guard($guard)->guest()) {
+        if (!auth()->user()) {
             return response()->json([
                 'success' => false,
                 'message' => 'Unauthenticated'

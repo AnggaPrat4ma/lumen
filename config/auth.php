@@ -8,7 +8,7 @@ return [
 
     'guards' => [
         'api' => [
-            'driver' => 'api', // atau 'passport' kalau pakai Passport, atau 'token' kalau pakai bawaan
+            'driver' => 'jwt', // atau 'passport' kalau pakai Passport, atau 'token' kalau pakai bawaan
             'provider' => 'users',
         ],
     ],

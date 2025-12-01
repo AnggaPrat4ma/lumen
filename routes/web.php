@@ -97,34 +97,39 @@ $router->get('/storage/{path:.*}', function ($path) {
 
 $router->group(['prefix' => 'api'], function () use ($router) {
 
-    // Firebase Authentication
-    $router->post('/auth/firebase', 'AuthController@firebaseAuth');
-    $router->post('/auth/verify-token', 'AuthController@verifyToken');
+    // ✅ FIREBASE + JWT AUTHENTICATION
+    $router->post('/auth/firebase', 'AuthController@firebaseAuth');     // Firebase → JWT
+    $router->post('/auth/login', 'AuthController@login');               // Email/Password → JWT
+    $router->post('/auth/register', 'AuthController@register');         // Register → JWT
+    $router->post('/auth/verify-token', 'AuthController@verifyToken');  // Verify JWT
 
-    // Public: View events (untuk marketing/landing page)
+    // Public: View events
     $router->get('/events/public', 'EventController@publicEvents');
 
-    // ⭐ MIDTRANS CALLBACK - HARUS PUBLIC (DIPANGGIL OLEH SERVER MIDTRANS)
+    // Midtrans Callback - PUBLIC
     $router->post('/midtrans/callback', 'MidtransCallbackController@handleNotification');
 });
 
 // ============================================
-// PROTECTED ROUTES (Requires Firebase Auth)
+// PROTECTED ROUTES (Requires JWT Auth + DB Check)
 // ============================================
 
-$router->group(['prefix' => 'api', 'middleware' => 'cors'], function () use ($router) {
-    // Get all events where user is owner or panitia
-    $router->get('/events/my-managed', 'EventController@getMyManagedEvents');
-
+$router->group(['prefix' => 'api', 'middleware' => ['auth', 'jwt.db']], function () use ($router) {
+    
     // ============================================
     // AUTH ROUTES
     // ============================================
     $router->get('/auth/me', 'AuthController@me');
     $router->put('/auth/profile', 'AuthController@updateProfile');
-    $router->post('/auth/logout', 'AuthController@logout');
+    $router->post('/auth/logout', 'AuthController@logout');              // ✅ Logout (hapus current token)
+    $router->post('/auth/logout-all', 'AuthController@logoutAll');       // ✅ Logout all devices
+    $router->post('/auth/refresh', 'AuthController@refresh');            // ✅ Refresh token
+
+    // Get managed events
+    $router->get('/events/my-managed', 'EventController@getMyManagedEvents');
 
     // ============================================
-    // MIDTRANS ROUTES (Yang memerlukan auth)
+    // MIDTRANS ROUTES
     // ============================================
     $router->group(['prefix' => 'midtrans'], function () use ($router) {
         $router->post('/create-transaction', 'MidtransController@createTransaction');
@@ -132,7 +137,9 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function () use ($ro
         $router->get('/check-status/{orderId}', 'MidtransCallbackController@checkPaymentStatus');
     });
 
-    // Scan History Routes
+    // ============================================
+    // SCAN HISTORY ROUTES
+    // ============================================
     $router->post('/scan-history', 'ScanHistoryController@scanTiket');
     $router->get('/scan-history/check/{idTiket}', 'ScanHistoryController@checkTiketScan');
     $router->get('/scan-history/tiket/{idTiket}', 'ScanHistoryController@getScanHistoryByTiket');
@@ -145,13 +152,10 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function () use ($ro
     // ============================================
     // EVENT ROUTES
     // ============================================
-
-    // ✅ ALL authenticated users: View events
     $router->get('/events', 'EventController@index');
     $router->get('/events/{id}', 'EventController@show');
     $router->get('/events/{id}/jenis-tiket', 'EventController@getJenisTiketByEvent');
 
-    // ✅ EO & Admin only: CRUD events
     $router->group(['middleware' => 'permission:event.create'], function () use ($router) {
         $router->post('/events', 'EventController@store');
     });
@@ -168,14 +172,11 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function () use ($ro
     // ============================================
     // JENIS TIKET ROUTES
     // ============================================
-
-    // ✅ ALL authenticated users: View jenis tiket (untuk order)
     $router->get('/jenis-tiket', 'JenisTiketController@index');
     $router->get('/jenis-tiket/{id}', 'JenisTiketController@show');
     $router->get('/jenis-tiket/{id}/available', 'JenisTiketController@checkAvailability');
     $router->get('/jenis-tiket/event/{eventId}', 'JenisTiketController@getByEvent');
 
-    // ✅ EO & Admin only: CRUD jenis tiket
     $router->group(['middleware' => 'permission:jenis-tiket.create'], function () use ($router) {
         $router->post('/jenis-tiket', 'JenisTiketController@store');
     });
@@ -189,20 +190,16 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function () use ($ro
     });
 
     // ============================================
-    // TIKET ROUTES (Scan & View)
+    // TIKET ROUTES
     // ============================================
-    // ✅ EO & Panitia: Scan & Verify tickets
     $router->group(['middleware' => 'permission:tiket.scan'], function () use ($router) {
         $router->post('/tiket/scan', 'TicketController@scan');
-        $router->post('/tiket/check-in', 'TicketController@checkIn'); // Alias
+        $router->post('/tiket/check-in', 'TicketController@checkIn');
         $router->get('/tiket/scan-history', 'TicketController@scanHistory');
     });
 
-    // ✅ User: View own tickets
     $router->get('/tiket/my-tickets', 'TicketController@myTickets');
     $router->get('/tiket/{id}', 'TicketController@show');
-
-    // ✅ EO: View tickets from own events
     $router->get('/tiket/event/{eventId}', 'TicketController@getEventTickets');
     $router->get('/tiket/event/{eventId}/statistics', 'TicketController@getEventStatistics');
 
@@ -212,90 +209,66 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function () use ($ro
         $router->post('/tiket/validate', 'TicketController@validateTicket');
     });
 
-    // ✅ User: Cancel own ticket
     $router->post('/tiket/{id}/cancel', 'TicketController@cancel');
 
     // ============================================
     // TRANSAKSI ROUTES
     // ============================================
-
-    // ✅ Admin only: Approve/Reject transaksi
     $router->group(['middleware' => 'permission:transaksi.approve'], function () use ($router) {
         $router->post('/transaksi/{id}/approve', 'TransaksiController@approve');
         $router->post('/transaksi/{id}/reject', 'TransaksiController@reject');
-        $router->get('/transaksi/all', 'TransaksiController@all'); // View all transaksi
+        $router->get('/transaksi/all', 'TransaksiController@all');
     });
 
     $router->post('/transaksi/register-free', 'TransaksiController@registerFree');
-    // ✅ NEW: Check if user can register for event
     $router->get('/transaksi/can-register/{eventId}', 'TransaksiController@canRegister');
 
-    // ✅ User: Create transaksi (order tickets)
     $router->group(['middleware' => 'permission:transaksi.create'], function () use ($router) {
         $router->post('/transaksi', 'TransaksiController@store');
     });
 
-    // ✅ User: View own transaksi
     $router->get('/transaksi', 'TransaksiController@index');
     $router->get('/transaksi/{id}', 'TransaksiController@show');
 
     // ============================================
-    // USER MANAGEMENT (Admin only)
+    // USER MANAGEMENT
     // ============================================
-
     $router->group(['middleware' => 'role:Admin,EO'], function () use ($router) {
-        // User CRUD
         $router->get('/users', 'UserController@index');
         $router->get('/users/{id}', 'UserController@show');
         $router->post('/users', 'UserController@store');
         $router->put('/users/{id}', 'UserController@update');
         $router->delete('/users/{id}', 'UserController@destroy');
 
-        // Role Management
         $router->post('/users/{id}/assign-role', 'UserController@assignRole');
         $router->post('/users/{id}/remove-role', 'UserController@removeRole');
-
-        // Permission Management (Direct to User)
+        
         $router->get('/users/{id}/permissions', 'UserController@getUserPermissions');
         $router->post('/users/{id}/give-permission', 'UserController@givePermission');
         $router->post('/users/{id}/revoke-permission', 'UserController@revokePermission');
     });
 
     // ============================================
-    // ROLE & PERMISSION MANAGEMENT (Admin only)
+    // ROLE & PERMISSION MANAGEMENT
     // ============================================
-
     $router->group(['middleware' => 'role:Admin'], function () use ($router) {
-        // Roles
         $router->get('/roles', 'RoleController@index');
         $router->post('/roles', 'RoleController@store');
         $router->put('/roles/{id}', 'RoleController@update');
         $router->delete('/roles/{id}', 'RoleController@destroy');
 
-        // Permissions
         $router->get('/permissions', 'PermissionController@index');
         $router->post('/permissions', 'PermissionController@store');
 
-        // Assign permissions to role
         $router->post('/roles/{id}/assign-permission', 'RoleController@assignPermission');
         $router->post('/roles/{id}/remove-permission', 'RoleController@removePermission');
     });
 
     // ============================================
-    // 🆕 EVENT PANITIA MANAGEMENT
+    // EVENT PANITIA MANAGEMENT
     // ============================================
-
-
-
-    // Get panitia list for specific event (Owner only)
     $router->get('/events/{id}/panitia', 'EventController@getEventPanitia');
-
-    // Add panitia to event (Owner only)
     $router->post('/events/{id}/add-panitia', 'EventController@addPanitia');
-
-    // Remove panitia from event (Owner only)
     $router->post('/events/{id}/remove-panitia', 'EventController@removePanitia');
-
-    // Transfer event ownership (Owner only)
     $router->post('/events/{id}/transfer-ownership', 'EventController@transferOwnership');
 });

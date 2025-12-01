@@ -3,261 +3,146 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Firebase Auth Test</title>
+    <title>Firebase Google Login → ID Token Tester</title>
     <style>
         body {
             font-family: Arial, sans-serif;
             max-width: 800px;
-            margin: 50px auto;
-            padding: 20px;
+            margin: 40px auto;
+            padding: 25px;
             background: #f5f5f5;
         }
         .container {
             background: white;
             padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
         button {
             background: #4285f4;
             color: white;
             border: none;
-            padding: 12px 24px;
-            font-size: 16px;
-            border-radius: 4px;
+            padding: 14px 26px;
+            border-radius: 6px;
             cursor: pointer;
-            margin: 10px 0;
+            font-size: 15px;
         }
         button:hover {
             background: #357ae8;
         }
-        .token-box {
-            background: #f8f9fa;
-            border: 1px solid #dee2e6;
-            border-radius: 4px;
+        .box {
+            margin-top: 20px;
             padding: 15px;
-            margin: 20px 0;
-            word-wrap: break-word;
+            background: #f9f9f9;
+            border-radius: 6px;
             font-family: monospace;
-            font-size: 12px;
-            max-height: 300px;
-            overflow-y: auto;
         }
-        .user-info {
-            background: #e7f3ff;
+        .success, .error, .info {
             padding: 15px;
-            border-radius: 4px;
-            margin: 20px 0;
+            border-radius: 6px;
+            margin-top: 20px;
         }
-        .copy-btn {
-            background: #28a745;
-            font-size: 14px;
-            padding: 8px 16px;
-        }
-        .copy-btn:hover {
-            background: #218838;
-        }
-        .logout-btn {
-            background: #dc3545;
-        }
-        .logout-btn:hover {
-            background: #c82333;
-        }
-        .hidden {
-            display: none;
-        }
-        .success {
-            color: #28a745;
-            font-weight: bold;
-        }
-        .error {
-            color: #dc3545;
-            font-weight: bold;
-        }
-        h2 {
-            color: #333;
-            margin-top: 0;
-        }
-        .label {
-            font-weight: bold;
-            color: #666;
-            margin-bottom: 5px;
-        }
+        .success { background: #e8f5e9; color: #2e7d32; }
+        .error { background: #ffebee; color: #c62828; }
+        .info { background: #e3f2fd; color: #1565c0; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h2>🔥 Firebase Authentication Test</h2>
-        
-        <div id="loginSection">
-            <p>Click the button below to login with Google:</p>
-            <button id="loginBtn" onclick="loginWithGoogle()">
-                🔐 Login with Google
-            </button>
-        </div>
+<div class="container">
+    <h1>Firebase Google Login Token Tester</h1>
+    <p>Login dengan Google lalu kirim Firebase ID Token ke backend Lumen JWT kamu.</p>
 
-        <div id="userSection" class="hidden">
-            <div class="user-info">
-                <h3>✅ Logged In Successfully!</h3>
-                <p><strong>Name:</strong> <span id="userName"></span></p>
-                <p><strong>Email:</strong> <span id="userEmail"></span></p>
-                <p><strong>UID:</strong> <span id="userUid"></span></p>
-            </div>
+    <button onclick="loginWithGoogle()">Sign in with Google</button>
 
-            <div class="label">📋 Firebase ID Token (Copy this for Postman):</div>
-            <div class="token-box" id="tokenBox"></div>
-            <button class="copy-btn" onclick="copyToken()">📋 Copy Token</button>
-            <button class="copy-btn" onclick="testBackend()">🧪 Test Backend API</button>
-            <button class="logout-btn" onclick="logout()">🚪 Logout</button>
+    <div id="result"></div>
+    <div id="backend"></div>
+</div>
 
-            <div id="backendResult" class="hidden">
-                <div class="label">Backend API Response:</div>
-                <div class="token-box" id="backendResponse"></div>
-            </div>
-        </div>
+<script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+    import { getAuth, GoogleAuthProvider, signInWithPopup } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
 
-        <div id="statusMessage"></div>
-    </div>
+    const firebaseConfig = {
+        apiKey: "AIzaSyDR0_EJ-xceZeGY8YUb9ewqXbo-lYQspHQ",
+        authDomain: "pengelolaevent-bb1b3.firebaseapp.com",
+        projectId: "pengelolaevent-bb1b3",
+        storageBucket: "pengelolaevent-bb1b3.firebasestorage.app",
+        messagingSenderId: "341419718777",
+        appId: "1:341419718777:web:f7c37c7cbdcaaf7d23fca8"
+    };
 
-    <!-- Firebase SDK -->
-    <script type="module">
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-        import { getAuth, signInWithPopup, GoogleAuthProvider, signOut } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const provider = new GoogleAuthProvider();
 
-        // ⚠️ GANTI DENGAN CONFIG FIREBASE ANDA
-        const firebaseConfig = {
-            apiKey: "AIzaSyDR0_EJ-xceZeGY8YUb9ewqXbo-lYQspHQ",
-            authDomain: "pengelolaevent-bb1b3.firebaseapp.com",
-            projectId: "pengelolaevent-bb1b3",
-            storageBucket: "pengelolaevent-bb1b3.firebasestorage.app",
-            messagingSenderId: "341419718777",
-            appId: "1:341419718777:web:f7c37c7cbdcaaf7d23fca8",
-        };
+    window.loginWithGoogle = async () => {
+        const resultDiv = document.getElementById('result');
+        const backendDiv = document.getElementById('backend');
+        backendDiv.innerHTML = "";
 
-        // Initialize Firebase
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const provider = new GoogleAuthProvider();
+        try {
+            resultDiv.innerHTML = `<div class="info">Login dengan Google...</div>`;
 
-        // Make functions globally available
-        window.firebaseAuth = auth;
-        window.googleProvider = provider;
+            const result = await signInWithPopup(auth, provider);
+            const user = result.user;
+            const token = await user.getIdToken();
 
-        // Login with Google
-        window.loginWithGoogle = async function() {
-            try {
-                showStatus('Logging in...', 'info');
-                const result = await signInWithPopup(auth, provider);
-                const user = result.user;
-                
-                // Get ID Token
-                const idToken = await user.getIdToken();
-                
-                // Display user info
-                document.getElementById('userName').textContent = user.displayName;
-                document.getElementById('userEmail').textContent = user.email;
-                document.getElementById('userUid').textContent = user.uid;
-                document.getElementById('tokenBox').textContent = idToken;
-                
-                // Show user section
-                document.getElementById('loginSection').classList.add('hidden');
-                document.getElementById('userSection').classList.remove('hidden');
-                
-                showStatus('✅ Login successful!', 'success');
-                
-                // Store token in localStorage
-                localStorage.setItem('firebase_token', idToken);
-                
-            } catch (error) {
-                console.error('Login error:', error);
-                showStatus('❌ Login failed: ' + error.message, 'error');
-            }
-        };
+            // Keep clean
+            const safeToken = token.replace(/'/g, "\\'");
 
-        // Copy token to clipboard
-        window.copyToken = function() {
-            const token = document.getElementById('tokenBox').textContent;
-            navigator.clipboard.writeText(token).then(() => {
-                showStatus('✅ Token copied to clipboard!', 'success');
-            }).catch(err => {
-                showStatus('❌ Failed to copy: ' + err, 'error');
-            });
-        };
+            resultDiv.innerHTML = `
+                <div class="success">
+                    <h3>Login sukses!</h3>
+                    <p><b>Nama:</b> ${user.displayName}</p>
+                    <p><b>Email:</b> ${user.email}</p>
+                    <p><b>UID:</b> ${user.uid}</p>
+                </div>
 
-        // Test backend API
-        window.testBackend = async function() {
-            try {
-                showStatus('Testing backend API...', 'info');
-                const token = document.getElementById('tokenBox').textContent;
-                
-                // Test Firebase Auth endpoint
-                const response = await fetch('http://localhost:8000/api/auth/firebase', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        firebase_token: token
-                    })
-                });
+                <div class="box">
+                    <h4>Firebase ID Token:</h4>
+                    <p>${token}</p>
+                    <button onclick="copyToken('${safeToken}')">Copy Token</button>
+                </div>
 
-                const data = await response.json();
-                
-                // Display response
-                document.getElementById('backendResponse').textContent = JSON.stringify(data, null, 2);
-                document.getElementById('backendResult').classList.remove('hidden');
-                
-                if (response.ok) {
-                    showStatus('✅ Backend API test successful!', 'success');
-                } else {
-                    showStatus('⚠️ Backend returned error: ' + (data.message || 'Unknown error'), 'error');
-                }
-                
-            } catch (error) {
-                console.error('Backend test error:', error);
-                showStatus('❌ Backend test failed: ' + error.message, 'error');
-            }
-        };
+                <button style="margin-top:20px;background:#4caf50" onclick="sendToBackend('${safeToken}')">
+                    Kirim Token ke Backend
+                </button>
+            `;
 
-        // Logout
-        window.logout = async function() {
-            try {
-                await signOut(auth);
-                document.getElementById('loginSection').classList.remove('hidden');
-                document.getElementById('userSection').classList.add('hidden');
-                document.getElementById('backendResult').classList.add('hidden');
-                localStorage.removeItem('firebase_token');
-                showStatus('✅ Logged out successfully!', 'success');
-            } catch (error) {
-                console.error('Logout error:', error);
-                showStatus('❌ Logout failed: ' + error.message, 'error');
-            }
-        };
-
-        // Show status message
-        function showStatus(message, type) {
-            const statusEl = document.getElementById('statusMessage');
-            statusEl.textContent = message;
-            statusEl.className = type;
-            setTimeout(() => {
-                statusEl.textContent = '';
-                statusEl.className = '';
-            }, 5000);
+        } catch (error) {
+            resultDiv.innerHTML = `<div class="error"><b>Error:</b> ${error.message}</div>`;
         }
+    };
 
-        // Check if already logged in
-        auth.onAuthStateChanged(async (user) => {
-            if (user) {
-                const idToken = await user.getIdToken();
-                document.getElementById('userName').textContent = user.displayName;
-                document.getElementById('userEmail').textContent = user.email;
-                document.getElementById('userUid').textContent = user.uid;
-                document.getElementById('tokenBox').textContent = idToken;
-                document.getElementById('loginSection').classList.add('hidden');
-                document.getElementById('userSection').classList.remove('hidden');
-                localStorage.setItem('firebase_token', idToken);
-            }
-        });
-    </script>
+    window.copyToken = (token) => {
+        navigator.clipboard.writeText(token);
+        alert("Token copied!");
+    };
+
+    window.sendToBackend = async (token) => {
+        const backendDiv = document.getElementById('backend');
+
+        backendDiv.innerHTML = `<div class="info">Mengirim token ke backend...</div>`;
+
+        try {
+            const response = await fetch("http://localhost:8000/api/auth/firebase", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ firebase_token: token })
+            });
+
+            const data = await response.json();
+
+            backendDiv.innerHTML = `
+                <div class="success">
+                    <h3>Respons Backend:</h3>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                </div>
+            `;
+        } catch (err) {
+            backendDiv.innerHTML = `<div class="error">Gagal mengirim token: ${err.message}</div>`;
+        }
+    };
+</script>
 </body>
 </html>
