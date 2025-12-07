@@ -108,6 +108,80 @@ $router->group(['prefix' => 'api'], function () use ($router) {
 
     // Midtrans Callback - PUBLIC
     $router->post('/midtrans/callback', 'MidtransCallbackController@handleNotification');
+
+    // ⚠️ DEVELOPMENT ONLY - Hapus setelah digunakan!
+    $router->get('/generate-event-slugs', function () use ($router) {
+        try {
+            $events = \App\Models\Event::whereNull('slug')
+                ->orWhere('slug', '')
+                ->get();
+
+            if ($events->isEmpty()) {
+                return response()->json([
+                    'success' => true,
+                    'message' => '✅ All events already have slugs!',
+                    'total' => 0
+                ]);
+            }
+
+            $results = [];
+            $successCount = 0;
+            $errorCount = 0;
+
+            foreach ($events as $event) {
+                try {
+                    $slug = \Illuminate\Support\Str::slug($event->nama_event);
+                    $originalSlug = $slug;
+                    $count = 1;
+
+                    // Ensure uniqueness
+                    while (\App\Models\Event::where('slug', $slug)
+                        ->where('id_event', '!=', $event->id_event)
+                        ->exists()
+                    ) {
+                        $slug = $originalSlug . '-' . $count;
+                        $count++;
+                    }
+
+                    $event->slug = $slug;
+                    $event->save();
+
+                    $results[] = [
+                        'status' => '✅ success',
+                        'id' => $event->id_event,
+                        'event' => $event->nama_event,
+                        'slug' => $slug
+                    ];
+                    $successCount++;
+                } catch (\Exception $e) {
+                    $results[] = [
+                        'status' => '❌ error',
+                        'id' => $event->id_event,
+                        'event' => $event->nama_event,
+                        'error' => $e->getMessage()
+                    ];
+                    $errorCount++;
+                }
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => '🎉 Slug generation complete!',
+                'summary' => [
+                    'total_processed' => $events->count(),
+                    'success' => $successCount,
+                    'errors' => $errorCount
+                ],
+                'results' => $results
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error generating slugs',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    });
 });
 
 // ============================================
@@ -115,7 +189,7 @@ $router->group(['prefix' => 'api'], function () use ($router) {
 // ============================================
 
 $router->group(['prefix' => 'api', 'middleware' => ['auth', 'jwt.db']], function () use ($router) {
-    
+
     // ============================================
     // AUTH ROUTES
     // ============================================
@@ -127,6 +201,13 @@ $router->group(['prefix' => 'api', 'middleware' => ['auth', 'jwt.db']], function
 
     // Get managed events
     $router->get('/events/my-managed', 'EventController@getMyManagedEvents');
+    // Cek apakah user bisa akses halaman panitia
+    $router->get('/check-panitia-access', 'EventController@checkPanitiaAccess');
+
+    // Get event yang di-assign ke user (khusus panitia)
+    $router->get('/events/my-assigned', 'EventController@getMyAssignedEvents');
+
+    $router->get('/tiket/{id}/download-pdf', 'TicketController@downloadPdf');
 
     // ============================================
     // MIDTRANS ROUTES
@@ -153,7 +234,7 @@ $router->group(['prefix' => 'api', 'middleware' => ['auth', 'jwt.db']], function
     // EVENT ROUTES
     // ============================================
     $router->get('/events', 'EventController@index');
-    $router->get('/events/{id}', 'EventController@show');
+    $router->get('/events/{slug}', 'EventController@show');
     $router->get('/events/{id}/jenis-tiket', 'EventController@getJenisTiketByEvent');
 
     $router->group(['middleware' => 'permission:event.create'], function () use ($router) {
@@ -242,7 +323,7 @@ $router->group(['prefix' => 'api', 'middleware' => ['auth', 'jwt.db']], function
 
         $router->post('/users/{id}/assign-role', 'UserController@assignRole');
         $router->post('/users/{id}/remove-role', 'UserController@removeRole');
-        
+
         $router->get('/users/{id}/permissions', 'UserController@getUserPermissions');
         $router->post('/users/{id}/give-permission', 'UserController@givePermission');
         $router->post('/users/{id}/revoke-permission', 'UserController@revokePermission');

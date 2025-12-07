@@ -48,11 +48,20 @@ class EventController extends Controller
     }
 
     /**
-     * GET /api/events/{id}
+     * GET /api/events/{slug}
+     * Support both slug and ID for backward compatibility
      */
-    public function show($id)
+    public function show($slug)
     {
-        $event = Event::with('users', 'jenisTiket')->find($id);
+        // Try to find by slug first
+        $event = Event::with('users', 'jenisTiket')
+            ->where('slug', $slug)
+            ->first();
+
+        // If not found, try by ID (backward compatibility)
+        if (!$event && is_numeric($slug)) {
+            $event = Event::with('users', 'jenisTiket')->find($slug);
+        }
 
         if (!$event) {
             return response()->json([
@@ -167,6 +176,148 @@ class EventController extends Controller
             'message' => 'Event created successfully',
             'data' => $event->load('users')
         ], 201);
+    }
+
+    /**
+     * GET /api/events/my-assigned
+     * 
+     * Get event yang di-assign ke user (khusus untuk Panitia)
+     * Hanya menampilkan event dimana user adalah panitia (is_owner = 0)
+     * 
+     * Middleware: auth, jwt.db
+     */
+    public function getMyAssignedEvents()
+    {
+        try {
+            $user = auth()->user();
+
+            // Get events where user is assigned (as panitia, not owner)
+            $events = DB::table('user_has_event')
+                ->join('event', 'user_has_event.id_event', '=', 'event.id_event')
+                ->where('user_has_event.id_user', $user->id_user)
+                ->where('user_has_event.is_owner', 0) // ✅ HANYA PANITIA
+                ->select(
+                    'event.id_event',
+                    'event.nama_event',
+                    'event.deskripsi',
+                    'event.lokasi',
+                    'event.start_time',
+                    'event.end_time',
+                    'event.banner',
+                    'event.berbayar',
+                    'event.created_at',
+                    'event.updated_at'
+                )
+                ->orderBy('event.start_time', 'desc')
+                ->get();
+
+            // Format response
+            $formattedEvents = $events->map(function ($event) {
+                return [
+                    'id_event' => $event->id_event,
+                    'nama_event' => $event->nama_event,
+                    'deskripsi' => $event->deskripsi,
+                    'lokasi' => $event->lokasi,
+                    'start_time' => $event->start_time,
+                    'end_time' => $event->end_time,
+                    'banner' => $event->banner ? url('storage/' . $event->banner) : null,
+                    'berbayar' => (bool) $event->berbayar,
+                    'my_role' => 'Panitia',
+                    'created_at' => $event->created_at,
+                    'updated_at' => $event->updated_at,
+                ];
+            });
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Assigned events retrieved successfully',
+                'data' => [
+                    'events' => $formattedEvents,
+                    'total' => $formattedEvents->count(),
+                    'user_role' => 'Panitia'
+                ]
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error fetching assigned events: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve assigned events',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * GET /api/check-panitia-access
+     * 
+     * Cek apakah user memiliki akses sebagai Panitia
+     * Return: boolean dan list event yang di-assign
+     * 
+     * Middleware: auth, jwt.db
+     */
+    public function checkPanitiaAccess()
+    {
+        try {
+            $user = auth()->user();
+
+            // ✅ LUMEN FIX: Query manual untuk check role Panitia
+            $isPanitia = DB::table('model_has_roles')
+                ->join('roles', 'model_has_roles.role_id', '=', 'roles.id')
+                ->where('model_has_roles.model_type', 'App\Models\User') // atau 'App\\User'
+                ->where('model_has_roles.model_id', $user->id_user)
+                ->where('roles.name', 'Panitia')
+                ->exists();
+
+            Log::info('CHECK_PANITIA_ACCESS', [
+                'user_id' => $user->id_user,
+                'user_name' => $user->nama,
+                'has_panitia_role' => $isPanitia
+            ]);
+
+            // Cek apakah user di-assign ke event manapun (sebagai panitia, bukan owner)
+            $assignedEventsCount = DB::table('user_has_event')
+                ->where('id_user', $user->id_user)
+                ->where('is_owner', 0)
+                ->count();
+
+            Log::info('ASSIGNED_EVENTS_COUNT', [
+                'user_id' => $user->id_user,
+                'count' => $assignedEventsCount
+            ]);
+
+            // ✅ Get all user roles (manual query)
+            $userRoles = DB::table('model_has_roles')
+                ->join('roles', 'model_has_roles.role_id', '=', 'roles.id')
+                ->where('model_has_roles.model_type', 'App\Models\User')
+                ->where('model_has_roles.model_id', $user->id_user)
+                ->pluck('roles.name')
+                ->toArray();
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'has_panitia_role' => $isPanitia,
+                    'has_assigned_events' => $assignedEventsCount > 0,
+                    'assigned_events_count' => $assignedEventsCount,
+                    'can_access_panitia_page' => $isPanitia && $assignedEventsCount > 0,
+                    'user' => [
+                        'id_user' => $user->id_user,
+                        'nama' => $user->nama,
+                        'email' => $user->email,
+                        'roles' => $userRoles
+                    ]
+                ]
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error checking panitia access: ' . $e->getMessage());
+            Log::error('Stack trace: ' . $e->getTraceAsString());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to check panitia access',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
@@ -299,19 +450,17 @@ class EventController extends Controller
     public function publicEvents()
     {
         try {
-            // ✅ Eager load jenisTiket untuk setiap event
             $events = Event::with(['jenisTiket' => function ($query) {
-                // Urutkan berdasarkan harga dari termurah
                 $query->orderBy('harga', 'asc');
             }])
                 ->where('start_time', '>=', Carbon::now())
                 ->orderBy('start_time', 'asc')
                 ->get();
 
-            // ✅ Format response
             $formattedEvents = $events->map(function ($event) {
                 $data = [
                     'id_event' => $event->id_event,
+                    'slug' => $event->slug, // ✅ PENTING: Include slug
                     'nama_event' => $event->nama_event,
                     'deskripsi' => $event->deskripsi,
                     'lokasi' => $event->lokasi,
@@ -323,7 +472,6 @@ class EventController extends Controller
                     'updated_at' => $event->updated_at,
                 ];
 
-                // ✅ Include jenis_tiket jika ada
                 if ($event->jenisTiket) {
                     $data['jenis_tiket'] = $event->jenisTiket->map(function ($tiket) {
                         return [
